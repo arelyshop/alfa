@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema POS e Inventario</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Librerías para generar PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader { border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #3b82f6; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .tab-active { border-color: #3b82f6; color: #3b82f6; font-weight: 600; }
+        .tab-inactive { border-color: transparent; color: #6b7280; }
+        .tab-content { display: none; }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <div class="mb-8 border-b border-gray-200">
+            <nav class="flex space-x-4" aria-label="Tabs">
+                <button id="tab-pos" class="px-3 py-2 text-sm font-medium border-b-2 tab-active">Punto de Venta</button>
+                <button id="tab-inventory" class="px-3 py-2 text-sm font-medium border-b-2 tab-inactive">Gestionar Inventario</button>
+                <button id="tab-sales-query" class="px-3 py-2 text-sm font-medium border-b-2 tab-inactive">Consultar Ventas</button>
+            </nav>
+        </div>
+
+        <!-- Pestaña: Punto de Venta -->
+        <div id="content-pos" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 bg-white rounded-xl shadow-lg overflow-hidden">
+                    <div class="p-6 flex justify-between items-center" style="background-color: #2c3c53; color: white;">
+                        <div class="flex items-center">
+                            <img src="https://dcdn-us.mitiendanube.com/stores/004/546/736/themes/common/logo-660776128-1736645739-9bb5db1715d3b799cdf782b0f0815d541736645739.webp?0" alt="Logo ArelyShop" class="h-12 mr-4">
+                            <div>
+                                <h2 class="font-bold text-xl">ArelyShop</h2>
+                                <p class="text-xs">Santa Cruz de la Sierra, Bolivia</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <h3 class="font-bold text-lg">Nota de Venta</h3>
+                            <p class="text-sm">Nr: <span id="current-sale-id">--</span></p>
+                            <p class="text-sm">Fecha: <span id="current-date">--/--/----</span></p>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6">
+                        <div class="relative mb-4">
+                            <label for="search-product" class="block text-sm font-medium text-gray-700 mb-1">Buscar Producto</label>
+                            <input type="text" id="search-product" placeholder="Nombre, SKU, Código de Barras..." class="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                            <div id="search-results" class="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto hidden"></div>
+                        </div>
+                        <h3 class="text-xl font-semibold text-gray-700 mt-6 mb-3">Carrito</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
+                                        <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Precio Unit.</th>
+                                        <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Cantidad</th>
+                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Subtotal</th>
+                                        <th class="px-4 py-2"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cart-items" class="bg-white divide-y divide-gray-200">
+                                    <tr id="empty-cart-row"><td colspan="5" class="text-center py-8 text-gray-500">El carrito está vacío</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-xl shadow-lg p-6 h-fit">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Detalles del Cliente</h3>
+                    <form id="customer-form" class="space-y-4">
+                        <div><label for="customer-name" class="block text-sm font-medium text-gray-700">Nombre</label><input type="text" id="customer-name" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                        <div><label for="customer-contact" class="block text-sm font-medium text-gray-700">Contacto</label><input type="text" id="customer-contact" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                        <div><label for="customer-id" class="block text-sm font-medium text-gray-700">NIT/CI</label><input type="text" id="customer-id" class="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg"></div>
+                    </form>
+                    <div class="border-t border-gray-200 mt-6 pt-6">
+                        <div class="flex justify-between items-center text-2xl font-bold text-gray-800"><span>TOTAL:</span><span id="total-amount">Bs 0.00</span></div>
+                        <button id="finalize-sale-button" class="mt-6 w-full inline-flex items-center justify-center px-8 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-200 shadow-lg disabled:bg-gray-400">
+                            <span id="sale-button-text" class="inline-flex items-center justify-center">
+                                <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                Generar Venta y Descargar PDF
+                            </span>
+                            <div id="sale-loader" class="loader hidden"></div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pestaña: Gestionar Inventario -->
+        <div id="content-inventory" class="tab-content">
+             <div class="w-full max-w-3xl mx-auto bg-white rounded-xl shadow-lg p-8 md:p-12">
+                <div class="text-center mb-10">
+                    <h1 class="text-3xl md:text-4xl font-bold text-gray-800">Registrar Nuevo Producto</h1>
+                    <p class="text-gray-500 mt-2">Completa los campos para añadir un artículo al inventario.</p>
+                </div>
+                <form id="inventory-form" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div><label for="nombre" class="block text-sm font-medium text-gray-700 mb-1">Nombre del Producto</label><input type="text" id="nombre" name="nombre" required class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                        <div><label for="sku" class="block text-sm font-medium text-gray-700 mb-1">SKU</label><input type="text" id="sku" name="sku" class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div><label for="precioVenta" class="block text-sm font-medium text-gray-700 mb-1">Precio (Venta)</label><input type="number" step="0.01" id="precioVenta" name="precioVenta" required class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                        <div><label for="precioCompra" class="block text-sm font-medium text-gray-700 mb-1">Precio (Compra)</label><input type="number" step="0.01" id="precioCompra" name="precioCompra" class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                        <div><label for="precioMayoreo" class="block text-sm font-medium text-gray-700 mb-1">Precio (Mayoreo)</label><input type="number" step="0.01" id="precioMayoreo" name="precioMayoreo" class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div><label for="cantidad" class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label><input type="number" id="cantidad" name="cantidad" required class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                        <div><label for="codigoBarras" class="block text-sm font-medium text-gray-700 mb-1">Código de Barras</label><input type="text" id="codigoBarras" name="codigoBarras" class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                    </div>
+                    <div><label for="urlFoto1" class="block text-sm font-medium text-gray-700 mb-1">URL de la Foto</label><input type="text" id="urlFoto1" name="urlFoto1" placeholder="https://ejemplo.com/imagen.jpg" class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>
+                    <div class="flex items-center justify-end pt-4">
+                        <button type="submit" id="inventory-submit-button" class="inline-flex items-center justify-center px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700">
+                            <span id="inventory-button-text">Registrar Producto</span>
+                            <div id="inventory-loader" class="loader hidden ml-3"></div>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Pestaña: Consultar Ventas -->
+        <div id="content-sales-query" class="tab-content">
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Consultar Ventas</h2>
+                <input type="text" id="search-sales-input" placeholder="Buscar por Nro. Venta, Cliente o Contacto..." class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-6">
+                <div id="sales-results-container" class="space-y-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación para Anular Venta -->
+    <div id="annul-confirm-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div class="mt-3 text-center">
+                <div class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                    <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <h3 class="text-lg leading-6 font-medium text-gray-900 mt-2">Anular Venta</h3>
+                <div class="mt-2 px-7 py-3"><p id="annul-modal-text" class="text-sm text-gray-500">¿Estás seguro? Esta acción no se puede deshacer y el stock será restaurado.</p></div>
+                <div class="items-center px-4 py-3">
+                    <button id="confirm-annul-btn" class="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-lg w-auto shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300">Confirmar Anulación</button>
+                    <button id="cancel-annul-btn" class="px-4 py-2 bg-gray-200 text-gray-800 text-base font-medium rounded-lg w-auto ml-2 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-300">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwxHgB0QiAvw_KA3ple8PlHIcOOcpHjCZfvrhRZB7obM6BDmI30Ff5Ltx1e8mEEERXw/exec';
+        
+        let products = [];
+        let sales = [];
+        let cart = [];
+        let saleIdToAnnul = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initTabs();
+            fetchProducts();
+            
+            const searchInput = document.getElementById('search-product');
+            searchInput.addEventListener('input', handleSearch);
+            searchInput.addEventListener('keydown', handleBarcodeScan);
+
+            document.getElementById('search-sales-input').addEventListener('input', renderSalesResults);
+            document.getElementById('finalize-sale-button').addEventListener('click', finalizeSale);
+            document.getElementById('inventory-form').addEventListener('submit', handleAddProduct);
+
+            document.getElementById('cancel-annul-btn').addEventListener('click', () => {
+                document.getElementById('annul-confirm-modal').classList.add('hidden');
+            });
+            document.getElementById('confirm-annul-btn').addEventListener('click', () => {
+                if (saleIdToAnnul) {
+                    annulSaleInBackend(saleIdToAnnul);
+                }
+                document.getElementById('annul-confirm-modal').classList.add('hidden');
+            });
+
+            document.getElementById('current-date').textContent = new Date().toLocaleDateString('es-BO');
+        });
+
+        function initTabs() {
+            const tabs = {
+                pos: { btn: document.getElementById('tab-pos'), content: document.getElementById('content-pos') },
+                inventory: { btn: document.getElementById('tab-inventory'), content: document.getElementById('content-inventory') },
+                salesQuery: { btn: document.getElementById('tab-sales-query'), content: document.getElementById('content-sales-query') }
+            };
+
+            Object.keys(tabs).forEach(key => {
+                tabs[key].btn.addEventListener('click', () => {
+                    Object.values(tabs).forEach(t => {
+                        t.btn.classList.remove('tab-active');
+                        t.btn.classList.add('tab-inactive');
+                        t.content.style.display = 'none';
+                    });
+                    tabs[key].btn.classList.add('tab-active');
+                    tabs[key].btn.classList.remove('tab-inactive');
+                    tabs[key].content.style.display = 'block';
+
+                    if (key === 'salesQuery') {
+                        fetchSales();
+                    }
+                });
+            });
+            tabs.pos.content.style.display = 'block';
+        }
+        
+        async function fetchProducts() {
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                    body: JSON.stringify({ action: 'getProducts' })
+                });
+                const result = await response.json();
+                products = result.status === 'success' ? result.data : [];
+            } catch (error) {
+                console.error("Network error fetching products:", error);
+            }
+        }
+
+        async function fetchSales() {
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                    body: JSON.stringify({ action: 'getSales' })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    sales = result.data.sort((a, b) => {
+                        const numA = parseInt((a['Nro. Venta'] || "as0").substring(2));
+                        const numB = parseInt((b['Nro. Venta'] || "as0").substring(2));
+                        return numB - numA;
+                    });
+                    renderSalesResults();
+                }
+            } catch (error) {
+                console.error("Network error fetching sales:", error);
+            }
+        }
+
+        function handleBarcodeScan(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const barcode = e.target.value.trim();
+                if (barcode === '') return;
+                const foundProduct = products.find(p => p['Código de Barras']?.toString() === barcode);
+                if (foundProduct) {
+                    addToCart(foundProduct);
+                }
+                e.target.value = '';
+            }
+        }
+
+        function handleSearch(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const resultsContainer = document.getElementById('search-results');
+            if (searchTerm.length < 1) {
+                resultsContainer.innerHTML = '';
+                resultsContainer.classList.add('hidden');
+                return;
+            }
+            const filteredProducts = products.filter(p => 
+                p['Nombre']?.toLowerCase().includes(searchTerm) ||
+                p['SKU']?.toString().toLowerCase().includes(searchTerm) ||
+                p['Código de Barras']?.toString().toLowerCase().includes(searchTerm)
+            );
+            resultsContainer.classList.remove('hidden');
+            resultsContainer.innerHTML = '';
+            if (filteredProducts.length > 0) {
+                filteredProducts.forEach(p => {
+                    const div = document.createElement('div');
+                    div.className = 'p-3 hover:bg-gray-100 cursor-pointer';
+                    div.textContent = `${p['Nombre']} (Bs ${p['Precio (Venta)']})`;
+                    div.onclick = () => addToCart(p);
+                    resultsContainer.appendChild(div);
+                });
+            } else {
+                resultsContainer.innerHTML = '<div class="p-3 text-gray-500">No se encontraron productos</div>';
+            }
+        }
+
+        function addToCart(product) {
+            const existingCartItem = cart.find(item => item['SKU'] === product['SKU'] && item['Nombre'] === product['Nombre']);
+            if (existingCartItem) {
+                existingCartItem.quantity++;
+            } else {
+                cart.push({ ...product, quantity: 1, customPrice: parseFloat(product['Precio (Venta)']) });
+            }
+            document.getElementById('search-product').value = '';
+            document.getElementById('search-results').classList.add('hidden');
+            renderCart();
+        }
+
+        function renderCart() {
+            const cartItemsContainer = document.getElementById('cart-items');
+            cartItemsContainer.innerHTML = '';
+            if (cart.length === 0) {
+                cartItemsContainer.innerHTML = '<tr id="empty-cart-row"><td colspan="5" class="text-center py-8 text-gray-500">El carrito está vacío</td></tr>';
+            } else {
+                cart.forEach((item, index) => {
+                    const subtotal = item.quantity * item.customPrice;
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="px-4 py-3 text-sm text-gray-800 align-middle">${item['Nombre']}</td>
+                        <td class="px-4 py-3 text-sm align-middle"><input type="number" step="0.01" value="${item.customPrice.toFixed(2)}" onchange="updateItemPrice(${index}, this.value)" class="w-24 text-center border rounded-lg py-1"></td>
+                        <td class="px-4 py-3 text-sm text-center align-middle"><input type="number" min="1" value="${item.quantity}" onchange="setQuantity(${index}, this.value)" class="w-20 text-center border rounded-lg py-1"></td>
+                        <td class="px-4 py-3 text-sm text-right font-medium align-middle">Bs ${subtotal.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-center align-middle"><button onclick="removeFromCart(${index})" class="text-red-500 hover:text-red-700 font-bold text-xl">&times;</button></td>
+                    `;
+                    cartItemsContainer.appendChild(row);
+                });
+            }
+            updateTotal();
+        }
+        
+        function updateItemPrice(index, newPrice) {
+            const price = parseFloat(newPrice);
+            if (!isNaN(price) && price >= 0) cart[index].customPrice = price;
+            renderCart();
+        }
+
+        function setQuantity(index, newQuantity) {
+            const quantity = parseInt(newQuantity);
+            if (!isNaN(quantity) && quantity > 0) {
+                cart[index].quantity = quantity;
+            } else {
+                cart[index].quantity = 1;
+            }
+            renderCart();
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1);
+            renderCart();
+        }
+
+        function updateTotal() {
+            const total = cart.reduce((sum, item) => sum + (item.quantity * item.customPrice), 0);
+            document.getElementById('total-amount').textContent = `Bs ${total.toFixed(2)}`;
+            document.getElementById('finalize-sale-button').disabled = cart.length === 0;
+        }
+
+        async function finalizeSale() {
+            if (cart.length === 0) return;
+            const button = document.getElementById('finalize-sale-button');
+            const buttonText = document.getElementById('sale-button-text');
+            const loader = document.getElementById('sale-loader');
+            buttonText.classList.add('hidden');
+            loader.classList.remove('hidden');
+            button.disabled = true;
+
+            const saleData = {
+                action: 'recordSale',
+                data: {
+                    customer: { name: document.getElementById('customer-name').value, contact: document.getElementById('customer-contact').value, id: document.getElementById('customer-id').value },
+                    items: cart.map(item => ({ Nombre: item['Nombre'], SKU: item['SKU'], cantidad: item.quantity, precio: item.customPrice })),
+                    total: cart.reduce((sum, item) => sum + (item.quantity * item.customPrice), 0)
+                }
+            };
+            
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                    body: JSON.stringify(saleData)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById('current-sale-id').textContent = result.saleId;
+                    generateSalePDF(result.saleId, saleData.data);
+                    cart = [];
+                    renderCart();
+                    document.getElementById('customer-form').reset();
+                    fetchProducts();
+                }
+            } catch (error) {
+                console.error('Error de red al registrar la venta.', error);
+            } finally {
+                buttonText.classList.remove('hidden');
+                loader.classList.add('hidden');
+                button.disabled = cart.length === 0;
+            }
+        }
+
+        function generateSalePDF(saleId, saleData) {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.setFontSize(20);
+            doc.text("ArelyShop", 14, 22);
+            doc.setFontSize(10);
+            doc.text("Santa Cruz de la Sierra, Bolivia", 14, 28);
+            doc.setFontSize(16);
+            doc.text("Nota de Venta", 190, 22, null, null, "right");
+            doc.setFontSize(10);
+            doc.text(`Nr: ${saleId}`, 190, 28, null, null, "right");
+            doc.text(`Fecha: ${new Date().toLocaleDateString('es-BO')}`, 190, 34, null, null, "right");
+            doc.setFontSize(12);
+            doc.text("Datos del Cliente:", 14, 50);
+            doc.setFontSize(10);
+            doc.text(`Nombre: ${saleData.customer.name || 'N/A'}`, 14, 56);
+            doc.text(`Contacto: ${saleData.customer.contact || 'N/A'}`, 14, 62);
+            doc.text(`NIT/CI: ${saleData.customer.id || 'N/A'}`, 14, 68);
+            const tableColumn = ["Cant.", "Descripción", "P. Unit.", "Subtotal"];
+            const tableRows = [];
+            saleData.items.forEach(item => {
+                const itemData = [ item.cantidad, item.Nombre, `Bs ${item.precio.toFixed(2)}`, `Bs ${(item.cantidad * item.precio).toFixed(2)}` ];
+                tableRows.push(itemData);
+            });
+            doc.autoTable(tableColumn, tableRows, { startY: 75 });
+            const finalY = doc.autoTable.previous.finalY;
+            doc.setFontSize(14);
+            doc.text("TOTAL:", 14, finalY + 15);
+            doc.text(`Bs ${saleData.total.toFixed(2)}`, 190, finalY + 15, null, null, "right");
+            doc.setFontSize(10);
+            doc.text("¡Gracias por su compra!", 105, finalY + 30, null, null, "center");
+            doc.text("Visita nuestra tienda online: arelyshopbo.mitiendanube.com", 105, finalY + 35, null, null, "center");
+            const customerName = saleData.customer.name.trim() ? saleData.customer.name.trim().replace(/ /g, "_") : "sin-nombre";
+            const fileName = `Nota_Venta_${saleId}_${customerName}.pdf`;
+            doc.save(fileName);
+        }
+
+        async function handleAddProduct(e) {
+            e.preventDefault();
+            const form = document.getElementById('inventory-form');
+            const button = document.getElementById('inventory-submit-button');
+            const buttonText = document.getElementById('inventory-button-text');
+            const loader = document.getElementById('inventory-loader');
+            buttonText.classList.add('hidden');
+            loader.classList.remove('hidden');
+            button.disabled = true;
+            const formData = new FormData(form);
+            const productData = {};
+            formData.forEach((value, key) => { productData[key] = value; });
+            const payload = { action: 'addProduct', data: productData };
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    form.reset();
+                    fetchProducts();
+                }
+            } catch (error) {
+                console.error('Error de red al añadir producto.', error);
+            } finally {
+                buttonText.classList.remove('hidden');
+                loader.classList.add('hidden');
+                button.disabled = false;
+            }
+        }
+        
+        function renderSalesResults() {
+            const searchTerm = document.getElementById('search-sales-input').value.toLowerCase();
+            const container = document.getElementById('sales-results-container');
+            container.innerHTML = '';
+            const filteredSales = sales.filter(s => 
+                s['Nro. Venta']?.toLowerCase().includes(searchTerm) ||
+                s['Nombre Cliente']?.toLowerCase().includes(searchTerm) ||
+                s['Contacto']?.toString().toLowerCase().includes(searchTerm)
+            );
+            if (filteredSales.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">No se encontraron ventas.</p>';
+                return;
+            }
+            filteredSales.forEach(sale => {
+                const isAnnulled = sale['Estado'] === 'Anulada';
+                const statusText = isAnnulled ? 'Anulada' : 'Activo';
+                const statusColor = isAnnulled ? 'bg-red-500 text-white' : 'bg-green-500 text-white';
+                const card = document.createElement('div');
+                card.className = `p-4 border rounded-lg ${isAnnulled ? 'bg-gray-200 opacity-70' : 'bg-white'}`;
+                let productsHtml = '<ul>';
+                try {
+                    const saleProducts = JSON.parse(sale['Productos Vendidos (JSON)']);
+                    saleProducts.forEach(p => {
+                        const price = p.precio !== undefined ? parseFloat(p.precio).toFixed(2) : 'N/A';
+                        productsHtml += `<li class="text-xs">${p.cantidad} x ${p.Nombre} @ Bs ${price}</li>`;
+                    });
+                } catch(e) { productsHtml += '<li>Error al leer productos</li>'; }
+                productsHtml += '</ul>';
+                const totalVenta = sale['Total Venta'] !== undefined ? parseFloat(sale['Total Venta']).toFixed(2) : 'N/A';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="font-bold text-lg">Venta ${sale['Nro. Venta']}</p>
+                            <p class="text-sm text-gray-600">${sale['Fecha de Venta']} - ${sale['Nombre Cliente']} (${sale['Contacto']})</p>
+                            <p class="font-semibold text-blue-600">Total: Bs ${totalVenta}</p>
+                        </div>
+                        <div class="text-right">
+                             <span class="font-semibold text-sm px-2 py-1 rounded-lg ${statusColor}">${statusText}</span>
+                             <div class="mt-2 flex space-x-2 justify-end">
+                                <button onclick="reprintSale('${sale['Nro. Venta']}')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">Reimprimir</button>
+                                <button onclick="openAnnulConfirmModal('${sale['Nro. Venta']}')" class="text-xs bg-red-600 text-white px-3 py-1 rounded-lg hover:bg-red-700 disabled:bg-gray-400" ${isAnnulled ? 'disabled' : ''}>Anular</button>
+                             </div>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-sm">${productsHtml}</div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function reprintSale(saleId) {
+            const saleToReprint = sales.find(s => s['Nro. Venta'] === saleId);
+            if (!saleToReprint) {
+                console.error("Venta no encontrada para reimprimir.");
+                return;
+            }
+
+            try {
+                const saleData = {
+                    customer: {
+                        name: saleToReprint['Nombre Cliente'],
+                        contact: saleToReprint['Contacto'],
+                        id: saleToReprint['NIT/CI']
+                    },
+                    items: JSON.parse(saleToReprint['Productos Vendidos (JSON)']),
+                    total: parseFloat(saleToReprint['Total Venta'])
+                };
+                generateSalePDF(saleId, saleData);
+            } catch (error) {
+                console.error("Error al preparar los datos para reimprimir el PDF:", error);
+            }
+        }
+
+        function openAnnulConfirmModal(saleId) {
+            saleIdToAnnul = saleId;
+            document.getElementById('annul-modal-text').textContent = `¿Estás seguro de que quieres anular la venta ${saleId}? Esta acción no se puede deshacer y el stock será restaurado.`;
+            document.getElementById('annul-confirm-modal').classList.remove('hidden');
+        }
+
+        async function annulSaleInBackend(saleId) {
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {'Content-Type': 'text/plain;charset=utf-8'},
+                    body: JSON.stringify({ action: 'annulSale', data: { saleId: saleId } })
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    fetchSales();
+                    fetchProducts();
+                } else {
+                    console.error(`Error: ${result.message}`);
+                }
+            } catch (error) {
+                console.error('Error de red al anular la venta.', error);
+            }
+        }
+    </script>
+</body>
+</html>
